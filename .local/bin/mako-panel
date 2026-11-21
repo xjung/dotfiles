@@ -22,9 +22,10 @@
 #   read     mark everything read without opening anything
 #   dnd      toggle mako's do-not-disturb mode
 #   open     open the file a notification points at; called from mako on click
+#   focus    focus the window a notification came from; called from mako on click
 #   bump     refresh waybar; called from mako's on-notify hook
 #
-# Usage: mako-panel [status|show|read|dnd|open <id>|bump]
+# Usage: mako-panel [status|show|read|dnd|open <id>|focus <id>|bump]
 
 set -euo pipefail
 
@@ -179,6 +180,57 @@ cmd_open() {
     makoctl dismiss -n "$id" >/dev/null 2>&1 || true
 }
 
+# Focus the window a notification came from, switching workspace if needed.
+# Bound to left-click in the mako config. When the app supplied its own
+# default action it knows how to surface the right tab or chat, so that is
+# preferred; otherwise the sender is matched against open windows (desktop
+# entry first, then the app name with a little translation, e.g.
+# "Telegram Desktop" -> org.telegram.desktop) and the most recently used
+# match is focused.
+cmd_focus() {
+    local id="${1:-}" n
+    [[ -n $id ]] || return 0
+
+    n=$(all_notifications | jq -c --argjson i "$id" \
+        '.[] | select(.id == $i) |
+         {app_name: (.app_name // ""), desktop_entry: (.desktop_entry // ""), actions: (.actions // {})}')
+    [[ -n $n ]] || return 0
+
+    if jq -e '.actions | has("default")' <<<"$n" >/dev/null; then
+        makoctl invoke -n "$id" default >/dev/null 2>&1 || true
+    else
+        local entry guess address
+        entry=$(jq -r '.desktop_entry' <<<"$n")
+        guess=$(notification_class "$(jq -r '.app_name' <<<"$n")" "$entry")
+
+        address=$(hyprctl clients -j | jq -r --arg entry "$entry" --arg guess "$guess" '
+            [.[] | select(
+                ($entry != "" and (.initialClass == $entry or .class == $entry)) or
+                (.initialClass | ascii_downcase) == $guess or
+                (.class | ascii_downcase) == $guess
+            )] | sort_by(-.focusHistoryID) | .[0].address // empty')
+
+        if [[ -n $address ]]; then
+            hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1 || true
+        else
+            # no window matched; the app's own action is the last resort
+            makoctl invoke -n "$id" default >/dev/null 2>&1 || true
+        fi
+    fi
+
+    makoctl dismiss -n "$id" >/dev/null 2>&1 || true
+}
+
+# A notification's sender as a window-class guess.
+notification_class() {
+    local app="${1:-}" entry="${2:-}"
+    [[ -n $entry ]] && { printf '%s' "$entry"; return; }
+    case "${app,,}" in
+        "telegram desktop") printf '%s' "org.telegram.desktop" ;;
+        *)                  printf '%s' "${app,,}" | awk '{print $1}' ;;
+    esac
+}
+
 cmd_read() {
     mark_all_read "$(all_notifications)"
     refresh_waybar
@@ -195,6 +247,7 @@ case "${1:-status}" in
     read)   cmd_read ;;
     dnd)    cmd_dnd ;;
     open)   cmd_open "${2:-}" ;;
+    focus)  cmd_focus "${2:-}" ;;
     bump)   refresh_waybar ;;
     *)      printf 'usage: %s [status|show|read|dnd|open <id>|bump]\n' "${0##*/}" >&2; exit 1 ;;
 esac

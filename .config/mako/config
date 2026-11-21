@@ -50,7 +50,9 @@ max-history=30
 
 group-by=app-name
 
-on-button-left=invoke-action default
+# Left-click focuses the source window (mako-panel prefers the app's own
+# default action when it has one, so Firefox still lands on the right tab).
+on-button-left=exec /home/andrey/.local/bin/mako-panel focus "$id"
 on-button-middle=dismiss
 on-button-right=exec makoctl dismiss --all
 on-touch=dismiss
@@ -108,7 +110,9 @@ default-timeout=8000
 ignore-timeout=1
 # Left-click opens the shot itself. hyprshot passes the file path as the
 # notification icon, so the handler has somewhere to read it from.
-on-button-left=exec $HOME/mako-panel open "$id"
+# (Was "$HOME/mako-panel" -- a path that does not exist; the script lives
+# in ~/.local/bin.)
+on-button-left=exec /home/andrey/.local/bin/mako-panel open "$id"
 
 # --- critical (last: overrides any app accent) ---------------------------
 

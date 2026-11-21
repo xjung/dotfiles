@@ -23,13 +23,6 @@ hl.monitor({
 	scale = 1.0,
 })
 
-hl.monitor({
-	output = "",
-	mode = "highres",
-	position = "auto",
-	scale = 1,
-})
-
 hl.config({
 	xwayland = {
 		force_zero_scaling = true,
@@ -56,6 +49,9 @@ hl.on("hyprland.start", function()
 	hl.exec_cmd("hyprsunset")
 	hl.exec_cmd("hypridle")
 	hl.exec_cmd("mpd")
+
+	hl.exec_cmd("gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita'")
+	hl.exec_cmd("gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'")
 end)
 
 -------------------------------
@@ -66,11 +62,6 @@ hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
 hl.env("GDK_SCALE", "2")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
-
-hl.on("hyprland.start", function()
-	hl.exec_cmd("gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita'")
-	hl.exec_cmd("gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'")
-end)
 
 -----------------------
 ----- PERMISSIONS -----
@@ -102,7 +93,8 @@ hl.config({
 			inactive_border = "rgba(000000aa)",
 		},
 
-		resize_on_border = false,
+		resize_on_border = true,
+		extend_border_grab_area = 15,
 		allow_tearing = false,
 		layout = "master",
 	},
@@ -173,6 +165,13 @@ hl.config({
 	misc = {
 		force_default_wallpaper = 0,
 		disable_hyprland_logo = true,
+
+		-- kitty swallows what it launches (yazi, cli apps) and comes back on exit
+		enable_swallow = true,
+		swallow_regex = "^(kitty)$",
+
+		-- let mouse movement wake the dpms-off screen (pairs with hypridle)
+		mouse_move_enables_dpms = true,
 	},
 })
 
@@ -182,7 +181,7 @@ hl.config({
 
 hl.config({
 	input = {
-		kb_layout = "us,ru",
+		kb_layout = "us,ru,de",
 		kb_variant = "",
 		kb_model = "",
 		kb_options = "grp:alt_shift_toggle",
@@ -197,11 +196,6 @@ hl.config({
 	},
 })
 
-hl.device({
-	name = "epic-mouse-v1",
-	sensitivity = -0.5,
-})
-
 ---------------------
 ---- KEYBINDINGS ----
 ---------------------
@@ -213,7 +207,11 @@ hl.bind(mainMod .. " + C", hl.dsp.window.close())
 hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("hyprctl dispatch exit"))
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + N", hl.dsp.exec_cmd("nautilus"))
-hl.bind(mainMod .. " + V", hl.dsp.window.float({ action = "toggle" }))
+-- Toggle floating, and center the window when it lands in floating mode
+hl.bind(mainMod .. " + V", function()
+	hl.dispatch(hl.dsp.window.float({ action = "toggle" }))
+	hl.dispatch(hl.dsp.window.center())
+end)
 hl.bind(mainMod .. " + R", hl.dsp.exec_cmd(menu))
 hl.bind(mainMod .. " + F", hl.dsp.window.fullscreen())
 hl.bind(mainMod .. " + P", hl.dsp.window.pseudo())
@@ -247,22 +245,43 @@ hl.bind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:mag
 hl.bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }))
 hl.bind(mainMod .. " + mouse_up", hl.dsp.focus({ workspace = "e-1" }))
 
-hl.bind(
-	mainMod .. " + CTRL + right",
-	hl.dsp.exec_cmd('hyprctl dispatch "hl.dsp.window.resize({ x = 50, y = 0, relative = true })"')
-)
-hl.bind(
-	mainMod .. " + CTRL + left",
-	hl.dsp.exec_cmd('hyprctl dispatch "hl.dsp.window.resize({ x = -50, y = 0, relative = true })"')
-)
-hl.bind(
-	mainMod .. " + CTRL + up",
-	hl.dsp.exec_cmd('hyprctl dispatch "hl.dsp.window.resize({ x = 0, y = -50, relative = true })"')
-)
-hl.bind(
-	mainMod .. " + CTRL + down",
-	hl.dsp.exec_cmd('hyprctl dispatch "hl.dsp.window.resize({ x = 0, y = 50, relative = true })"')
-)
+-- Pixel resize with mainMod + CTRL + arrows (repeat while held)
+local function resize_bind(key, x, y)
+	hl.bind(
+		mainMod .. " + CTRL + " .. key,
+		hl.dsp.window.resize({ x = x, y = y, relative = true }),
+		{ repeating = true }
+	)
+end
+resize_bind("right", 50, 0)
+resize_bind("left", -50, 0)
+resize_bind("up", 0, -50)
+resize_bind("down", 0, 50)
+
+-- Master layout controls
+hl.bind(mainMod .. " + K", hl.dsp.layout("focusmaster auto"))
+hl.bind(mainMod .. " + SHIFT + K", hl.dsp.layout("swapwithmaster master")) -- xmonad-style promote
+hl.bind(mainMod .. " + I", hl.dsp.layout("addmaster"))
+hl.bind(mainMod .. " + O", hl.dsp.layout("removemaster"))
+hl.bind(mainMod .. " + ALT + right", hl.dsp.layout("mfact +0.05"), { repeating = true })
+hl.bind(mainMod .. " + ALT + left", hl.dsp.layout("mfact -0.05"), { repeating = true })
+
+-- Alt-tab: cycle windows on ALT+TAB, cycle group tabs on SUPER+TAB
+hl.bind("ALT + TAB", hl.dsp.window.cycle_next({ next = true }))
+hl.bind("ALT + SHIFT + TAB", hl.dsp.window.cycle_next({ prev = true }))
+hl.bind(mainMod .. " + TAB", hl.dsp.group.next())
+hl.bind(mainMod .. " + SHIFT + TAB", hl.dsp.group.prev())
+hl.bind(mainMod .. " + G", hl.dsp.group.toggle())
+
+-- Bounce between the two most recently used workspaces
+hl.bind(mainMod .. " + grave", hl.dsp.focus({ workspace = "previous" }))
+
+-- Pin the floating window to all workspaces
+hl.bind(mainMod .. " + SHIFT + P", hl.dsp.window.pin())
+
+-- Move/resize windows with mainMod + LMB/RMB and dragging
+hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })
+hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 
 hl.bind(
 	"XF86AudioRaiseVolume",
@@ -315,18 +334,9 @@ hl.window_rule({
 	no_focus = true,
 })
 
-hl.window_rule({
-	name = "smart-gaps-wtv1",
-	match = { float = false, workspace = "w[tv1]" },
-	border_size = 0,
-})
-
-hl.window_rule({
-	name = "smart-gaps-f1",
-	match = { float = false, workspace = "f[1]" },
-	border_size = 0,
-})
-
+-- "centered" is not an app class: waybar modules launch TUI dialogs through
+-- `kitty --class centered` (bluetui, wlctl) to get a fixed-size floating
+-- dialog. Do not remove.
 hl.window_rule({
 	name = "centered-window",
 	match = { class = "centered" },
@@ -335,21 +345,36 @@ hl.window_rule({
 	max_size = "800 650",
 })
 
+-- No border when the workspace holds exactly one window (w[tv1] = exactly one
+-- tiling window, f[1] = exactly one floating window).
 hl.window_rule({
-	name = "menu",
-	match = { class = "wofi" },
+	name = "no-border-single-tiling",
+	match = { float = false, workspace = "w[tv1]" },
 	border_size = 0,
 })
 
 hl.window_rule({
-	name = "terminal",
-	match = { class = "kitty" },
+	name = "no-border-single-floating",
+	match = { float = false, workspace = "f[1]" },
+	border_size = 0,
 })
 
+-- Frequently used apps live on fixed workspaces. `silent` keeps the focus
+-- where it is when e.g. a link opens a new firefox window from another
+-- workspace; go there with SUPER+2 when you actually want it.
 hl.window_rule({
 	name = "firefox-workspace-2",
 	match = { class = "firefox" },
-	workspace = 2,
+	workspace = "2 silent",
+})
+
+-- Firefox picture-in-picture is a small floating window, not ws2 material.
+-- `unset` cancels the workspace assignment above (last matching rule wins).
+hl.window_rule({
+	name = "firefox-pip",
+	match = { class = "firefox", title = ".*Picture-in-Picture.*" },
+	workspace = "unset",
+	float = true,
 })
 
 hl.window_rule({
